@@ -1,45 +1,38 @@
 
-#install package
-if (!require("BiocManager", quietly = TRUE))
+# install package
+ if (!require("BiocManager", quietly = TRUE))
         install.packages("BiocManager")
 
 BiocManager::install("edgeR")
-n
 
 library("edgeR")
 
-#select folder
-setwd("C:/Users/cador/OneDrive/Doutorado/Meta SBGM/GSE148697")
+# to call the reading count files output from featureCounts tool (Galaxy Server)
+# they are separate files, so you must use the readDGE function
+# this function will not only read, but collate them all into a single file
+# if the files were already joint, you should use read.delim function
 
-#to check the folder
-getwd()
-
-#first thing is to call my reading count files
-#they are separate files, so I must use the readDGE function
-#this function will not only read, but collate them all into a single file
-#if the files were already joint, I should use read.delim function
-
-files <- c("GSM4476798.tabular",
-           "GSM4476799.tabular",
-           "GSM4476800.tabular",
-           "GSM4476801.tabular",
-           "GSM4476802.tabular",
-           "GSM4476803.tabular")
+files <- c("file1.tabular",
+           "file2.tabular",
+           "file3.tabular",
+           "file4.tabular",
+           "file5.tabular",
+           "file6.tabular")
 DG <- readDGE(files,header=F)
 
-#readDGE function appeared in the Global Environment
-#then, DG value appeared with the 7 files I indicated
+# readDGE function appeared in the Global Environment
+# then, DG value appeared with the 6 files I indicated
 
-#need to create a data frame now
+# need to create a data frame now
 
 # load each sample individually
-covid1 = read.table('GSM4476798.tabular',sep='\t',header=FALSE)
-covid2 = read.table('GSM4476799.tabular',sep='\t',header=FALSE)
-covid3 = read.table('GSM4476800.tabular',sep='\t',header=FALSE)
+covid1 = read.table('file4.tabular',sep='\t',header=FALSE)
+covid2 = read.table('file5.tabular',sep='\t',header=FALSE)
+covid3 = read.table('file6.tabular',sep='\t',header=FALSE)
 
-control1 = read.table('GSM4476801.tabular',sep='\t',header=FALSE)
-control2 = read.table('GSM4476802.tabular',sep='\t',header=FALSE)
-control3 = read.table('GSM4476803.tabular',sep='\t',header=FALSE)
+control1 = read.table('file1.tabular',sep='\t',header=FALSE)
+control2 = read.table('file2.tabular',sep='\t',header=FALSE)
+control3 = read.table('file3.tabular',sep='\t',header=FALSE)
 
 # combine data sets into a matrix
 geneCounts = data.frame(control1[,2], control2[,2],control3[,2],
@@ -67,7 +60,7 @@ norm_counts <- cpm(dge,log = TRUE, prior.count = 3)
 exp <- as.data.frame(norm_counts)
 
 #write plot
-jpeg(file="GSE148697_MDSplot.jpeg", width=5000, height=5000, units="px", res=300)
+jpeg(file="MDSplot_SVA.jpeg", width=5000, height=5000, units="px", res=300)
 plotMDS(dge)
 dev.off()
 
@@ -78,29 +71,51 @@ disp <- estimateGLMTagwiseDisp(disp, design)
 plotBCV(disp)
 
 #write plot
-jpeg(file="GSE148697_dispersion_plot.jpeg", width=5000, height=5000, units="px", res=300)
+jpeg(file="dispersion_plot.jpeg", width=5000, height=5000, units="px", res=300)
 plotBCV(disp)
 dev.off()
 
-########## PCA ANALYSIS #############
 
-#taken from microarray assays
+##############################################################
 
-## load the exp file
-geneCounts_PC<-geneCounts
+#SVA test#
+BiocManager::install("sva")
+library(sva)
 
-## expA_PC must a be a matrix
-geneCounts_PC<-data.matrix(geneCounts_PC)
+design0 <- as.data.frame(design)
+design0 = model.matrix(~1, data=design0)
 
-## transpose the expPC
-transp<-t(geneCounts_PC)
+#first step
+#estimating number of latent factors
+n.sv = num.sv(norm_counts,design,method="leek")
 
-## analyse principal component
-p3A<-prcomp(transp, retx=TRUE, center=TRUE, scale=FALSE)
-summary(p3A)
+#second step
+#sva function
+svobj = sva(norm_counts,design,design0,n.sv=n.sv)
+svobj.df <- data.frame(svobj$sv)
 
-## associate to p3scores the values of PC
-p3Ascores <- p3A$x
+## Source for cleaningP function (see github):
+## https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0808-5
+cleaningP = function(y, design, svaobj,  P=ncol(design)) {
+  X=cbind(design,svaobj$sv)
+  Hat=solve(t(X)%*%X)%*%t(X)
+  beta=(Hat%*%t(y))
+  cleany=y-t(as.matrix(X[,-c(1:P)])%*%beta[-c(1:P),])
+  return(cleany)
+}
+
+## Compare PCA with and without SV correction
+cleanp = cleaningP(norm_counts,design,svobj)
+pca <- prcomp(t(cleanp))
+plot(pca)
+#autoplot(pca,data=pd,colour='Grupo')
+
+pca0 <- prcomp(t(norm_counts))
+plot(pca0)
+#autoplot(pca0,data=pd,colour='Grupo')
+
+sv.p3Ascores <- pca$x
+
 
 ######################################################################
 
@@ -108,10 +123,10 @@ p3Ascores <- p3A$x
 
 #also taken from PCA analysis
 
-jpeg(file="GSE148697_PCA.jpeg", width=3200, height=3200, units="px", res=300)
+jpeg(file="PCA_SVA.jpeg", width=3200, height=3200, units="px", res=300)
 
 ## plot the PC
-plot(p3Ascores[,1], p3Ascores[,2], xlab="PCA 1", ylab="PCA 2",
+plot(sv.p3Ascores[,1], sv.p3Ascores[,2], xlab="PCA 1", ylab="PCA 2",
      type="p", cex.lab=0.75, cex.axis=0.75, 
      #xlim=c(-200,250), ylim=c(-200,170),
      col=c('deepskyblue','deepskyblue','deepskyblue','darkred','darkred',
@@ -119,7 +134,7 @@ plot(p3Ascores[,1], p3Ascores[,2], xlab="PCA 1", ylab="PCA 2",
      main="PCA scores", cex.main=1.2, font.main=1,pch=15)
 
 ## apply to plot
-text(p3Ascores, colnames(sampleNames), cex=0.5, pos=4, col="black")
+text(sv.p3Ascores, colnames(sampleNames), cex=0.5, pos=4, col="black")
 
 legend("topleft", legend=c("Control","COVID"),
        bty="n", xjust = 1, yjust = 1,
@@ -131,18 +146,20 @@ dev.off()
 #######################################################################
 ##### DIFFERENTIAL EXPRESSION ANALYSIS #####
 
-fit <- glmFit(disp, design)
+## Fit the linear model with the surrogate variables included
+modSv = cbind(design,svobj.df)
+
+fit <- glmFit(disp, modSv)
 lrt <- glmLRT(fit)
 topTags(lrt)
 
-#at last ¬¬
+#at last ??
 
 # tell edgeR what comparison you want to perform
-covidVScontrol = makeContrasts(covid-control, levels=design)
+covidVScontrol = makeContrasts(covid-control, levels=modSv)
 
 # obtain gene symbol
 BiocManager::install("org.Hs.eg.db")
-n
 
 library(org.Hs.eg.db)
 genes.map <-select(org.Hs.eg.db, as.character(control1$V1),c("SYMBOL","ENTREZID"), "ENTREZID")
@@ -157,9 +174,4 @@ table.covidVScontrol$ENTREZID <- row.names(table.covidVScontrol)
 table.covidVScontrol <- merge(table.covidVScontrol,genes.map)
 
 #creating file
-write.csv(table.covidVScontrol, file="GSE148697.csv")
-
-#aqui no script p.value é ajustado
-#PValue não ajustado
-
-
+write.csv(table.covidVScontrol, file="DGE_SVA.csv")
